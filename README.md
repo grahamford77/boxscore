@@ -177,7 +177,12 @@ https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php
 It's safe to re-run: matching is by shirt number within each team, so a
 second run against the same event updates the same players' stats (merge
 mode — it won't touch star ratings or anything else already on the event)
-rather than creating duplicates.
+rather than creating duplicates. `apply=1` writes to two separate postmeta
+keys: `sp_players` (the stat values) and `sp_player` (confirmed the hard
+way — a flat list of player IDs that are actually "in" the box score,
+which the display reads to decide who to show at all; stats alone in
+`sp_players` were not enough for a player to appear anywhere, on the
+public page or in wp-admin, without their ID also being in this list).
 
 Add `&format=json` to either URL to get the same result as raw JSON
 instead of the HTML report (useful for scripting/automation).

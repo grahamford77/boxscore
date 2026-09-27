@@ -49,6 +49,19 @@ define('GSI_EVENT_TEAMS_META', 'sp_team');
 // Confirm with action=discover-event.
 define('GSI_EVENT_PLAYERS_META', 'sp_players');
 
+// Postmeta key on the sp_event post holding the flat list of player IDs
+// actually "in" the box score (separate from GSI_EVENT_PLAYERS_META, which
+// only holds their stat values). Confirmed against a real event: this
+// starts as a couple of "0" placeholder entries and a real player's ID is
+// appended when added via the WordPress editor. The box score display
+// appears to read *this* list to decide which players to show - writing
+// correct stats into GSI_EVENT_PLAYERS_META alone was not enough for them
+// to appear, on either the public page or the wp-admin editor, without
+// their ID also being present here. Like GSI_EVENT_TEAMS_META, a real site
+// stores this as multiple postmeta rows sharing one key, not one row
+// holding an array.
+define('GSI_EVENT_LINEUP_META', 'sp_player');
+
 // Postmeta keys used on sp_player posts for basic fields, confirmed
 // against a real player. There is no first/last name meta - SportsPress
 // just uses the post title for that.
@@ -284,6 +297,35 @@ function gsi_write_boxscore_meta(int $event_id, array $stats): array {
     return $merged;
 }
 
+/**
+ * Adds every player ID in $stats to the event's GSI_EVENT_LINEUP_META list
+ * (deduped, existing entries - including any "0" placeholders - left
+ * alone) so the box score display recognizes them, not just their stats.
+ */
+function gsi_update_lineup_roster_meta(int $event_id, array $stats): void {
+    $raw = get_post_meta($event_id, GSI_EVENT_LINEUP_META);
+    $existing = (count($raw) === 1 && is_array($raw[0])) ? $raw[0] : $raw;
+    $existing = array_map('strval', $existing);
+
+    $merged = $existing;
+    foreach ($stats as $players) {
+        foreach (array_keys($players) as $player_id) {
+            $player_id = (string) $player_id;
+            if (!in_array($player_id, $merged, true)) {
+                $merged[] = $player_id;
+            }
+        }
+    }
+
+    if ($merged === $existing) {
+        return; // nothing new - avoid an unnecessary delete+re-add
+    }
+    delete_post_meta($event_id, GSI_EVENT_LINEUP_META);
+    foreach ($merged as $player_id) {
+        add_post_meta($event_id, GSI_EVENT_LINEUP_META, $player_id, false);
+    }
+}
+
 function gsi_all_meta(int $post_id): array {
     $out = [];
     foreach (get_post_meta($post_id) as $key => $values) {
@@ -462,6 +504,7 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
     $applied = false;
     if ($apply) {
         gsi_write_boxscore_meta($event_id, $stats_payload);
+        gsi_update_lineup_roster_meta($event_id, $stats_payload);
         $applied = true;
     }
 
