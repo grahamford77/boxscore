@@ -466,14 +466,28 @@ try {
             }
             $teams = gsi_event_teams($event_id);
             foreach ($teams as $key => &$team) {
-                $sample = get_posts([
+                $term_id = gsi_team_term_id($team['team_id']);
+                $sample = $term_id ? get_posts([
                     'post_type' => 'sp_player', 'posts_per_page' => 1, 'fields' => 'ids',
-                    'tax_query' => [['taxonomy' => GSI_TEAM_TAXONOMY, 'field' => 'term_id', 'terms' => gsi_team_term_id($team['team_id'])]],
-                ]);
+                    'tax_query' => [['taxonomy' => GSI_TEAM_TAXONOMY, 'field' => 'term_id', 'terms' => $term_id]],
+                ]) : [];
                 $team['post_meta'] = gsi_all_meta($team['team_id']);
+                $team['resolved_team_taxonomy_term_id'] = $term_id; // 0 means GSI_TEAM_TAXONOMY guess found no matching term - see sample_player_any below instead
                 $team['sample_player'] = $sample ? ['player_id' => $sample[0], 'title' => get_the_title($sample[0]), 'post_meta' => gsi_all_meta($sample[0]), 'taxonomies' => gsi_all_terms($sample[0], 'sp_player')] : null;
             }
             unset($team);
+
+            // Independent of whether the team-taxonomy guess above found anything,
+            // grab any one player on the site so we can see how it actually links
+            // to a team (taxonomy term, postmeta, or something else entirely).
+            $any_player_ids = get_posts(['post_type' => 'sp_player', 'posts_per_page' => 1, 'fields' => 'ids']);
+            $sample_player_any = $any_player_ids ? [
+                'player_id' => $any_player_ids[0],
+                'title' => get_the_title($any_player_ids[0]),
+                'post_meta' => gsi_all_meta($any_player_ids[0]),
+                'taxonomies' => gsi_all_terms($any_player_ids[0], 'sp_player'),
+            ] : null;
+
             gsi_output([
                 'event_id' => $event_id,
                 'title' => get_the_title($event_id),
@@ -481,6 +495,8 @@ try {
                 'taxonomies' => gsi_all_terms($event_id, 'sp_event'),
                 'teams_meta_key_used' => GSI_EVENT_TEAMS_META,
                 'teams' => $teams,
+                'sp_player_taxonomies_registered' => get_object_taxonomies('sp_player'),
+                'sample_player_any' => $sample_player_any,
             ], 'json'); // always JSON - this is a raw setup-inspection dump
             break;
 

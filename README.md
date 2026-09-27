@@ -76,15 +76,43 @@ where you put the pair on your server is up to you).
    sample player per team with *its* full meta/taxonomies (as JSON — it's a
    setup tool, not the report page). Check:
    - `teams` is non-empty and lists the right two teams. If empty, your
-     event→team meta key isn't `sp_team` — look through the dump's
-     `post_meta` for the array of team post IDs, and update
-     `GSI_EVENT_TEAMS_META` in the PHP file to match.
-   - `sample_player.post_meta` shows how number/position/first name/last
-     name/nationality are actually stored on a real player. Update
-     `GSI_PLAYER_META_KEYS` in the PHP file if the keys differ from the
-     defaults.
-   - `sample_player.taxonomies` shows which taxonomy links the player to
-     the team. Update `GSI_TEAM_TAXONOMY` if it isn't `sp_team`.
+     event→team meta key isn't `sp_team`, or isn't stored the way this
+     script expects — look through the dump's top-level `post_meta` for
+     wherever the two team post IDs actually are, and update
+     `GSI_EVENT_TEAMS_META` in the PHP file to match. (On a real
+     SportsPress site this is usually two separate postmeta rows sharing
+     the key `sp_team`, e.g. values `"732"` and `"75"` — that's handled
+     automatically.)
+   - Each team's `sample_player` is found by guessing that players link to
+     teams via a taxonomy called `sp_team` whose term slug/name matches the
+     team post. **This guess can be wrong** — if `sample_player` is `null`
+     even though the team has players, don't assume there are no players;
+     it means the guess didn't find a match. Two fields help you fix it
+     without needing a player on that specific team:
+     - `teams[n].resolved_team_taxonomy_term_id` — `0` means no taxonomy
+       term was found at all for that team under `GSI_TEAM_TAXONOMY`, which
+       usually means team↔player linking isn't done via a same-slug
+       taxonomy term (SportsPress may use a differently-configured
+       taxonomy, or postmeta instead — you'll need to check an actual
+       player's `taxonomies`/`post_meta` to see which).
+     - `sample_player_any` — any one player on the site, unfiltered by
+       team, with its **full** `post_meta` and **every** taxonomy it
+       belongs to (not just `GSI_TEAM_TAXONOMY`). This works even when the
+       team-matching guess above fails, and is the most reliable way to see
+       how team membership is actually recorded: look for a taxonomy whose
+       term name/slug matches one of your team names, or a postmeta key
+       whose value looks like a team post ID.
+     - `sp_player_taxonomies_registered` lists every taxonomy actually
+       registered on the player post type — if `sp_team` isn't in this
+       list at all, player↔team linking definitely isn't a taxonomy
+       relationship on your site, and `gsi_get_team_players()` /
+       `gsi_create_player()` in the PHP file (which both call
+       `gsi_team_term_id()`) will need to be changed to match however it's
+       really stored.
+   - Whichever `sample_player`/`sample_player_any` you get, its
+     `post_meta` shows how number/position/first name/last name/
+     nationality are actually stored. Update `GSI_PLAYER_META_KEYS` in the
+     PHP file if the keys differ from the defaults.
 
    Then check your Performance Variables (the G/A/PIM/SA/GA/SV definitions
    in SportsPress):
