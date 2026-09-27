@@ -302,26 +302,38 @@ function gsi_write_boxscore_meta(int $event_id, array $stats): array {
  * (deduped, existing entries - including any "0" placeholders - left
  * alone) so the box score display recognizes them, not just their stats.
  */
-function gsi_update_lineup_roster_meta(int $event_id, array $stats): void {
-    $raw = get_post_meta($event_id, GSI_EVENT_LINEUP_META);
-    $existing = (count($raw) === 1 && is_array($raw[0])) ? $raw[0] : $raw;
-    $existing = array_map('strval', $existing);
-
-    $merged = $existing;
-    foreach ($stats as $players) {
+/**
+ * Rebuilds GSI_EVENT_LINEUP_META from scratch as [0, <team A player ids>,
+ * 0, <team B player ids>] - confirmed against a real event that this list
+ * isn't a flat unordered bag: it's split into one section per team, each
+ * introduced by a literal "0" marker (a real WP post ID is never 0, so
+ * every "0" in the list is unambiguously a marker, never a player). An
+ * earlier version of this function appended new IDs to the end of
+ * whatever was already there, which put everything after the *last*
+ * marker - i.e. every player ended up attributed to the second team.
+ *
+ * Rebuilding from $merged_sp_players (the full, correctly team-keyed
+ * result of gsi_write_boxscore_meta - not just this run's own $stats)
+ * rather than patching the existing flat list means this self-heals any
+ * previously-incorrect state and stays correct even if a player was added
+ * to one team only through the WordPress editor between runs.
+ *
+ * @param array $ordered_team_ids [team_a_id, team_b_id] in the same order
+ *   as GSI_EVENT_TEAMS_META lists them (i.e. matching sp_team's order).
+ */
+function gsi_rebuild_lineup_roster_meta(int $event_id, array $ordered_team_ids, array $merged_sp_players): void {
+    $rebuilt = [];
+    foreach ($ordered_team_ids as $team_id) {
+        $rebuilt[] = '0';
+        $players = $merged_sp_players[(string) $team_id] ?? [];
         foreach (array_keys($players) as $player_id) {
-            $player_id = (string) $player_id;
-            if (!in_array($player_id, $merged, true)) {
-                $merged[] = $player_id;
+            if ((string) $player_id !== '0') {
+                $rebuilt[] = (string) $player_id;
             }
         }
     }
-
-    if ($merged === $existing) {
-        return; // nothing new - avoid an unnecessary delete+re-add
-    }
     delete_post_meta($event_id, GSI_EVENT_LINEUP_META);
-    foreach ($merged as $player_id) {
+    foreach ($rebuilt as $player_id) {
         add_post_meta($event_id, GSI_EVENT_LINEUP_META, $player_id, false);
     }
 }
@@ -415,6 +427,10 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
     if (!$wp_teams) {
         throw new RuntimeException("Event $event_id has no teams under postmeta key '" . GSI_EVENT_TEAMS_META . "'. Run action=discover-event to find the right key.");
     }
+    // GSI_EVENT_LINEUP_META's marker order follows sp_team's own stored
+    // order, not which team the gamesheet calls home/away - keep this
+    // list in that native order for gsi_rebuild_lineup_roster_meta().
+    $ordered_team_ids = array_values(array_column($wp_teams, 'team_id'));
 
     $report = ['sides' => [], 'sheet' => $sheet];
     $stats_payload = [];
@@ -503,8 +519,8 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
 
     $applied = false;
     if ($apply) {
-        gsi_write_boxscore_meta($event_id, $stats_payload);
-        gsi_update_lineup_roster_meta($event_id, $stats_payload);
+        $merged_sp_players = gsi_write_boxscore_meta($event_id, $stats_payload);
+        gsi_rebuild_lineup_roster_meta($event_id, $ordered_team_ids, $merged_sp_players);
         $applied = true;
     }
 

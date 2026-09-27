@@ -178,11 +178,18 @@ It's safe to re-run: matching is by shirt number within each team, so a
 second run against the same event updates the same players' stats (merge
 mode — it won't touch star ratings or anything else already on the event)
 rather than creating duplicates. `apply=1` writes to two separate postmeta
-keys: `sp_players` (the stat values) and `sp_player` (confirmed the hard
-way — a flat list of player IDs that are actually "in" the box score,
-which the display reads to decide who to show at all; stats alone in
-`sp_players` were not enough for a player to appear anywhere, on the
-public page or in wp-admin, without their ID also being in this list).
+keys: `sp_players` (the stat values, keyed by team then player) and
+`sp_player` — confirmed the hard way that a player's stats alone aren't
+enough for them to appear anywhere (public page or wp-admin) without
+their ID also being in this second, singular-named list, which the
+display actually reads to decide who to show. It isn't a flat bag either:
+it's positionally split into one section per team, `[0, <team A player
+ids>, 0, <team B player ids>]`, using the literal string `"0"` as a
+section marker (a real WordPress post ID is never 0, so every `"0"` here
+is unambiguously a marker, never a player). This script rebuilds the
+whole list from `sp_players`' team-keyed data on every `apply=1`, so it
+stays correct — including self-healing if the list was ever left in a
+bad state — rather than just appending to whatever was there.
 
 Add `&format=json` to either URL to get the same result as raw JSON
 instead of the HTML report (useful for scripting/automation).
