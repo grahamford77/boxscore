@@ -305,6 +305,34 @@ function gsi_all_terms(int $post_id, string $post_type): array {
     return $out;
 }
 
+/**
+ * Resolves which sp_event to act on from $_GET, accepting whichever of
+ * these is easiest to hand: a numeric ?event_id=, an ?event_slug=, or the
+ * full public event URL/path as ?event_url= (its last path segment is
+ * used as the slug). Numeric ID wins if more than one is given. Throws if
+ * none resolve to a real sp_event post - this exists specifically because
+ * mixing up which event a numeric ID belongs to is easy to do by hand.
+ */
+function gsi_resolve_event_id(): int {
+    $event_id = (int) ($_GET['event_id'] ?? 0);
+    if ($event_id) {
+        return get_post_type($event_id) === 'sp_event' ? $event_id : 0;
+    }
+
+    $slug = trim((string) ($_GET['event_slug'] ?? ''));
+    if (!$slug && !empty($_GET['event_url'])) {
+        $path = trim((string) parse_url((string) $_GET['event_url'], PHP_URL_PATH), '/');
+        $segments = $path === '' ? [] : explode('/', $path);
+        $slug = end($segments) ?: '';
+    }
+    if (!$slug) {
+        return 0;
+    }
+
+    $matches = get_posts(['post_type' => 'sp_event', 'name' => $slug, 'posts_per_page' => 1, 'fields' => 'ids']);
+    return $matches[0] ?? 0;
+}
+
 // --- Import orchestration -------------------------------------------------
 
 /**
@@ -409,7 +437,7 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
         $applied = true;
     }
 
-    return ['report' => $report, 'stats' => $stats_payload, 'applied' => $applied];
+    return ['event_id' => $event_id, 'event_title' => get_the_title($event_id), 'report' => $report, 'stats' => $stats_payload, 'applied' => $applied];
 }
 
 // --- Output helpers -------------------------------------------------------
@@ -443,6 +471,7 @@ function gsi_output(array $data, string $format): void {
 
     $sheet = $data['report']['sheet'];
     echo '<h1>' . htmlspecialchars($sheet['home']['name']) . ' vs ' . htmlspecialchars($sheet['away']['name']) . '</h1>';
+    echo '<p><strong>Event #' . (int) $data['event_id'] . ': ' . htmlspecialchars($data['event_title']) . '</strong> - double check this is the event you meant before trusting the rest of this report.</p>';
     echo '<p>' . htmlspecialchars($sheet['date'] ?? '') . ' &middot; ' . htmlspecialchars($sheet['venue'] ?? '') . ' &middot; ' . htmlspecialchars($sheet['competition'] ?? '') . '</p>';
 
     echo '<div class="banner ' . ($data['applied'] ? 'applied' : 'dry') . '">' . ($data['applied'] ? 'APPLIED - box score written to WordPress.' : 'DRY RUN - nothing was written. Add &amp;apply=1 to write this.') . '</div>';
@@ -482,9 +511,9 @@ try {
             break;
 
         case 'discover-event':
-            $event_id = (int) ($_GET['event_id'] ?? 0);
-            if (!$event_id || get_post_type($event_id) !== 'sp_event') {
-                throw new RuntimeException('Pass a valid ?event_id= for an existing sp_event post.');
+            $event_id = gsi_resolve_event_id();
+            if (!$event_id) {
+                throw new RuntimeException('Pass a valid ?event_id=, ?event_slug=, or ?event_url= (the public event page link) for an existing sp_event post.');
             }
             $teams = gsi_event_teams($event_id);
             foreach ($teams as $key => &$team) {
@@ -544,13 +573,13 @@ try {
         case 'import':
         default:
             $gamesheet_url = $_GET['gamesheet_url'] ?? '';
-            $event_id = (int) ($_GET['event_id'] ?? 0);
+            $event_id = gsi_resolve_event_id();
             $apply = ($_GET['apply'] ?? '0') === '1';
             if (!$gamesheet_url || !filter_var($gamesheet_url, FILTER_VALIDATE_URL)) {
                 throw new RuntimeException('Pass a valid ?gamesheet_url=');
             }
-            if (!$event_id || get_post_type($event_id) !== 'sp_event') {
-                throw new RuntimeException('Pass a valid ?event_id= for an existing sp_event post.');
+            if (!$event_id) {
+                throw new RuntimeException('Pass a valid ?event_id=, ?event_slug=, or ?event_url= (the public event page link) for an existing sp_event post.');
             }
             $result = gsi_run_import($gamesheet_url, $event_id, $apply);
             gsi_output($result, $format);

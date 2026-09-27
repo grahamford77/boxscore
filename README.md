@@ -70,8 +70,9 @@ where you put the pair on your server is up to you).
    `GSI_POSITION_TERM_SLUGS`, but position term slugs are editable content
    rather than something fixed by SportsPress itself, so a different site
    could use different ones — worth a quick check on yours. Using an
-   existing real event ID that already has its two teams assigned in
-   SportsPress:
+   existing real event that already has its two teams assigned in
+   SportsPress (see "Running an import" below for `event_id`/`event_slug`/
+   `event_url` — any of them work here too):
    ```
    https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php?token=YOUR_TOKEN&action=discover-event&event_id=1234
    ```
@@ -125,6 +126,17 @@ where you put the pair on your server is up to you).
    — match those against `GSI_STAT_SLUGS`.
 
 ## Running an import
+
+Identify the event with **one of** `&event_id=1234` (the numeric post ID),
+`&event_slug=romford-raiders-vs-peterborough-phantoms` (its URL slug), or
+`&event_url=` set to the full public event page link, pasted as-is — e.g.
+`&event_url=https://yoursite.com/event/romford-raiders-vs-peterborough-phantoms/`.
+The URL form is the safest to use since it's exactly what you'd copy from
+your browser's address bar while looking at the event, with no risk of
+copying the wrong numeric ID from a different event. Every report (HTML or
+JSON) also states the event ID/title it actually acted on right at the
+top — always check that matches what you meant before trusting the rest
+of it.
 
 Visit the URL (in a browser, or `curl`) with `apply` omitted or `0` first —
 this parses everything and shows exactly what would be created/written
