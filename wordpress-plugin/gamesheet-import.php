@@ -73,6 +73,17 @@ define('GSI_DEFAULT_NATIONALITY', 'GB');
 // whatever your SV performance variable's number format is set to.
 define('GSI_SV_FORMAT', 'decimal');
 
+// Extra per-player fields SportsPress stores in sp_players alongside the
+// stat values themselves (confirmed by manually adding one player via the
+// WordPress editor and diffing the result): 'number' is the player's shirt
+// number for this specific event, 'status' marks them as being in the
+// game (the only value seen in testing is 'lineup'), and 'sub' appears to
+// flag a substitute (0 = not a substitute). Every player this script
+// writes gets these three fields set the same way a manually-added lineup
+// player would.
+define('GSI_PLAYER_ROW_STATUS', 'lineup');
+define('GSI_PLAYER_ROW_SUB', '0');
+
 // ==============================================================================
 
 require __DIR__ . '/includes/gamesheet-parser.php';
@@ -351,7 +362,7 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
 
         foreach ($team_data['skaters'] as $skater) {
             $player_id = $resolve($skater['number']);
-            $s = [];
+            $s = ['number' => $skater['number'], 'status' => GSI_PLAYER_ROW_STATUS, 'sub' => GSI_PLAYER_ROW_SUB];
             if (isset($slugs['goals'])) $s[$slugs['goals']] = $skater['goals'];
             if (isset($slugs['assists'])) $s[$slugs['assists']] = $skater['assists'];
             if (isset($slugs['pim'])) $s[$slugs['pim']] = $skater['pim'];
