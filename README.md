@@ -62,77 +62,20 @@ where you put the pair on your server is up to you).
    ```
    https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php?token=YOUR_TOKEN&action=health
    ```
-   should show `"sportspress_active": true`.
+   should show `"sportspress_active": true`. That's it — the field
+   mappings near the top of `gamesheet-import.php` (`GSI_PLAYER_META_KEYS`,
+   `GSI_POSITION_TERM_SLUGS`, `GSI_STAT_SLUGS`, etc.) are already confirmed
+   working against a live SportsPress site, so there's nothing left to
+   verify before running a real import.
 
-4. **Confirm the field mappings against your real site.** The defaults
-   near the top of `gamesheet-import.php` have been confirmed against a
-   real SportsPress site (see "What's confirmed" below), including
-   `GSI_POSITION_TERM_SLUGS`, but position term slugs are editable content
-   rather than something fixed by SportsPress itself, so a different site
-   could use different ones — worth a quick check on yours. Using an
-   existing real event that already has its two teams assigned in
-   SportsPress (see "Running an import" below for `event_id`/`event_slug`/
-   `event_url` — any of them work here too):
-   ```
-   https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php?token=YOUR_TOKEN&action=discover-event&event_id=1234
-   ```
-   This dumps the event's raw postmeta/taxonomies, both teams (with a
-   sample player from each, if they have any), any one player on the site
-   regardless of team, every `sp_position` taxonomy term, and every
-   taxonomy registered on the player post type (as JSON — it's a setup
-   tool, not the report page). Check:
-   - `teams` is non-empty and lists the right two teams. If empty, your
-     event→team meta key isn't `sp_team`, or isn't stored the way this
-     script expects (a real site stores it as two separate postmeta rows
-     sharing the key `sp_team`, e.g. values `"732"` and `"75"` — that's
-     handled automatically) — look through the dump's top-level
-     `post_meta` for wherever the two team IDs actually are, and update
-     `GSI_EVENT_TEAMS_META` in the PHP file to match.
-   - `sp_position_terms` lists your site's real position taxonomy terms
-     (id/name/slug). Match them up against `GSI_POSITION_TERM_SLUGS` in
-     the PHP file and fix any that differ. A gamesheet position that
-     doesn't resolve to a real term is skipped (no taxonomy assigned)
-     rather than guessed further.
-   - `sample_player_any.post_meta` (or a team's own `sample_player`, if it
-     has players already) shows number/nationality as actually stored.
-     Update `GSI_PLAYER_META_KEYS` in the PHP file if the keys differ from
-     the defaults (`sp_number`, `sp_nationality`).
-
-   **What's confirmed** (from a real SportsPress site, so these are the
-   defaults already): a player links to a team via plain postmeta —
-   `sp_team` and `sp_current_team`, both set to the team's post ID —
-   *not* a taxonomy, despite the name; number is postmeta `sp_number`;
-   nationality is postmeta `sp_nationality` as a lowercase ISO 3166-1
-   alpha-3 code (e.g. `gbr`, not `GB`); position is the `sp_position`
-   taxonomy, not postmeta; and there's no first/last name meta at all —
-   SportsPress just uses the post title for the player's full name. Also
-   confirmed (by comparing this script's output against a real
-   admin-form-submitted box score row): a valid player entry in
-   `sp_players` must have *every* one of the event's configured stat
-   columns present (from `sp_columns`, not just the ones with a real
-   value — unset ones are `""`) and every value must be a **string**, even
-   numbers. A row missing columns or using real PHP int/float values was
-   silently ignored by SportsPress's box score editor — this script reads
-   `sp_columns` per-event and always emits the full set as strings to
-   match.
-
-   Then check your Performance Variables (the G/A/PIM/SA/GA/SV definitions
-   in SportsPress):
-   ```
-   https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php?token=YOUR_TOKEN&action=discover-performance-vars
-   ```
-   Find the terms matching Goals, Assists, PIM, Saves, Goals Against, Save
-   %, and set their `slug` values in `GSI_STAT_SLUGS` in the PHP file. Also
-   check your Save % variable's number format (decimal like `0.900` vs.
-   percentage like `90.0`) and set `GSI_SV_FORMAT` to match.
-
-   This action looks for a taxonomy with "performance" in its name, which
-   doesn't exist on every SportsPress setup — an empty result here doesn't
-   mean anything is broken. If it comes back empty, look instead at an
-   `sp_columns` entry in a real event's `discover-event` dump (from step
-   above): it directly lists the enabled stat slugs in order, e.g.
-   `{"1":"g","2":"a","3":"h","4":"s","5":"pim","6":"sa","7":"ga","8":"sv"}`
-   — match those against `GSI_STAT_SLUGS`.
+   If you ever set this up on a *different* SportsPress site and something
+   doesn't match (players not linking to the right team, positions not
+   applying, stats not showing), the script has built-in diagnostics for
+   that: `action=discover-event&event_id=<id>` dumps an event's raw
+   postmeta/taxonomies plus its teams' sample players, and
+   `action=discover-performance-vars` lists Performance Variable taxonomy
+   terms if your setup uses one. Compare what they show against the
+   `GSI_*` constants at the top of the file and adjust as needed.
 
 ## Running an import
 
@@ -179,17 +122,17 @@ second run against the same event updates the same players' stats (merge
 mode — it won't touch star ratings or anything else already on the event)
 rather than creating duplicates. `apply=1` writes to two separate postmeta
 keys: `sp_players` (the stat values, keyed by team then player) and
-`sp_player` — confirmed the hard way that a player's stats alone aren't
-enough for them to appear anywhere (public page or wp-admin) without
-their ID also being in this second, singular-named list, which the
-display actually reads to decide who to show. It isn't a flat bag either:
-it's positionally split into one section per team, `[0, <team A player
-ids>, 0, <team B player ids>]`, using the literal string `"0"` as a
-section marker (a real WordPress post ID is never 0, so every `"0"` here
-is unambiguously a marker, never a player). This script rebuilds the
-whole list from `sp_players`' team-keyed data on every `apply=1`, so it
-stays correct — including self-healing if the list was ever left in a
-bad state — rather than just appending to whatever was there.
+`sp_player` — a player's stats alone aren't enough for them to appear
+anywhere (public page or wp-admin) without their ID also being in this
+second, singular-named list, which the display actually reads to decide
+who to show. It isn't a flat bag either: it's positionally split into one
+section per team, `[0, <team A player ids>, 0, <team B player ids>]`,
+using the literal string `"0"` as a section marker (a real WordPress post
+ID is never 0, so every `"0"` here is unambiguously a marker, never a
+player). This script rebuilds the whole list from `sp_players`'
+team-keyed data on every `apply=1`, so it stays correct — including
+self-healing if the list was ever left in a bad state — rather than just
+appending to whatever was there.
 
 Add `&format=json` to either URL to get the same result as raw JSON
 instead of the HTML report (useful for scripting/automation).
@@ -206,14 +149,14 @@ instead of the HTML report (useful for scripting/automation).
   gap" above) — never written.
 - **Player creation fields** (number, name, position): read from the full
   roster table inside `#teams`, which has both teams' Pos., No., and Name
-  ("SURNAME Firstname") — the name becomes the new player's post title,
-  number becomes `sp_number`, and position is resolved to a real
-  `sp_position` taxonomy term via `GSI_POSITION_TERM_SLUGS`. Date of birth
-  is parsed by the script but not currently written anywhere (no confirmed
-  postmeta key for it yet). Nationality isn't on the gamesheet at all and
-  is set to `GSI_DEFAULT_NATIONALITY` in the PHP file (`gbr` by default,
-  matching SportsPress's ISO 3166-1 alpha-3 format) — review/correct these
-  manually afterwards.
+  ("SURNAME Firstname", with a trailing "C"/"A" for captain/alternate
+  captain stripped before splitting) — the name becomes the new player's
+  post title, number becomes `sp_number`, and position is resolved to a
+  real `sp_position` taxonomy term via `GSI_POSITION_TERM_SLUGS`. Date of
+  birth is parsed by the script but not currently written anywhere (no
+  confirmed postmeta key for it yet). Nationality isn't on the gamesheet
+  at all and is set to `GSI_DEFAULT_NATIONALITY` in the PHP file (`gbr` by
+  default) — review/correct these manually afterwards.
 
 If a different league's gamesheet has a different layout, the parser
 functions in `includes/gamesheet-parser.php` are all header/id/class based
@@ -242,8 +185,8 @@ care is worth taking:
 - Always use a long random token, and only call the script over HTTPS.
 - Consider removing the file from your server (or renaming it to something
   unguessable) when you're not actively importing gamesheets.
-- The `discover-*` actions dump raw postmeta and are meant for one-time
-  setup — no need to leave them easy to hit either.
+- The `discover-*` actions dump raw postmeta — no need to leave them easy
+  to hit either.
 
 ## Tests
 
@@ -254,8 +197,7 @@ php tests/test_parser.php
 ```
 It runs a set of assertions against `tests/fixtures/gamesheet_920.html` (a
 real sample gamesheet) verifying rosters, G/A/PIM, and SA/GA/SV are all
-read correctly — that's how the values documented above were confirmed
-before this was wired into WordPress. Testing the WordPress-writing half
-(`gamesheet-import.php` itself) needs an actual WordPress/SportsPress
-install; run it with `apply=0` (the default) against a real event first to
-check its report before trusting `apply=1`.
+read correctly. Testing the WordPress-writing half (`gamesheet-import.php`
+itself) needs an actual WordPress/SportsPress install; run it with
+`apply=0` (the default) against a real event first to check its report
+before trusting `apply=1`.
