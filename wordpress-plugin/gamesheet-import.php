@@ -415,6 +415,11 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
 // --- Output helpers -------------------------------------------------------
 
 function gsi_output(array $data, string $format): void {
+    // This endpoint reads/writes live data on every request - never let a
+    // browser, WordPress caching plugin, or CDN serve a stale response.
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+
     if ($format === 'json') {
         header('Content-Type: application/json');
         echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
