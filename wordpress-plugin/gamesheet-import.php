@@ -336,6 +336,25 @@ function gsi_resolve_event_id(): int {
 // --- Import orchestration -------------------------------------------------
 
 /**
+ * Returns this event's configured stat column slugs in display order (the
+ * sp_columns postmeta, e.g. {"1":"g","2":"a","3":"h",...} -> ["g","a","h",...]).
+ * Confirmed by comparing two real admin-form-submitted player rows: every
+ * one of these columns is always present on a real row, even when unset
+ * (as "" ), and SportsPress's box score editor appears to require the full
+ * set to recognize an entry as a real row at all - a sparse row (only the
+ * columns this script has data for) was silently ignored. Falls back to
+ * GSI_STAT_SLUGS's values if sp_columns isn't set for some reason.
+ */
+function gsi_event_stat_columns(int $event_id): array {
+    $columns = get_post_meta($event_id, 'sp_columns', true);
+    if (!is_array($columns) || !$columns) {
+        return array_values(GSI_STAT_SLUGS);
+    }
+    ksort($columns, SORT_NUMERIC);
+    return array_values($columns);
+}
+
+/**
  * @return array{report: array, stats: array, applied: bool}
  */
 function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): array {
@@ -357,6 +376,7 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
 
     $report = ['sides' => [], 'sheet' => $sheet];
     $stats_payload = [];
+    $stat_columns = gsi_event_stat_columns($event_id);
 
     foreach (['home', 'away'] as $side) {
         $team_data = $sheet[$side];
@@ -404,13 +424,21 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
         };
 
         $slugs = GSI_STAT_SLUGS;
+        $columns = $stat_columns; // this event's full column set, e.g. [g,a,h,s,pim,sa,ga,sv]
 
         foreach ($team_data['skaters'] as $skater) {
             $player_id = $resolve($skater['number']);
-            $s = ['number' => $skater['number'], 'status' => GSI_PLAYER_ROW_STATUS, 'sub' => GSI_PLAYER_ROW_SUB];
-            if (isset($slugs['goals'])) $s[$slugs['goals']] = $skater['goals'];
-            if (isset($slugs['assists'])) $s[$slugs['assists']] = $skater['assists'];
-            if (isset($slugs['pim'])) $s[$slugs['pim']] = $skater['pim'];
+            // Every configured column must be present (blank "" if we have
+            // no value for it) and every value a string - a sparse row or
+            // one with real PHP int/float values was silently ignored by
+            // SportsPress's box score editor, confirmed against real
+            // admin-submitted rows.
+            $s = ['number' => $skater['number']] + array_fill_keys($columns, '');
+            if (isset($slugs['goals'])) $s[$slugs['goals']] = (string) $skater['goals'];
+            if (isset($slugs['assists'])) $s[$slugs['assists']] = (string) $skater['assists'];
+            if (isset($slugs['pim'])) $s[$slugs['pim']] = (string) $skater['pim'];
+            $s['status'] = GSI_PLAYER_ROW_STATUS;
+            $s['sub'] = GSI_PLAYER_ROW_SUB;
             $team_stats[(string) $player_id] = $s;
         }
 
@@ -420,10 +448,10 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
             if ($sv !== null && GSI_SV_FORMAT === 'percent') {
                 $sv = round($sv * 100, 1);
             }
-            $s = $team_stats[(string) $player_id] ?? [];
-            if (isset($slugs['saves'])) $s[$slugs['saves']] = $goalie['saves'];
-            if (isset($slugs['goals_against'])) $s[$slugs['goals_against']] = $goalie['goals_against'];
-            if (isset($slugs['save_pct']) && $sv !== null) $s[$slugs['save_pct']] = $sv;
+            $s = $team_stats[(string) $player_id] ?? (['number' => $goalie['number']] + array_fill_keys($columns, '') + ['status' => GSI_PLAYER_ROW_STATUS, 'sub' => GSI_PLAYER_ROW_SUB]);
+            if (isset($slugs['saves'])) $s[$slugs['saves']] = (string) $goalie['saves'];
+            if (isset($slugs['goals_against'])) $s[$slugs['goals_against']] = (string) $goalie['goals_against'];
+            if (isset($slugs['save_pct']) && $sv !== null) $s[$slugs['save_pct']] = (string) $sv;
             $team_stats[(string) $player_id] = $s;
         }
 

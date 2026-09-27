@@ -105,7 +105,16 @@ where you put the pair on your server is up to you).
    nationality is postmeta `sp_nationality` as a lowercase ISO 3166-1
    alpha-3 code (e.g. `gbr`, not `GB`); position is the `sp_position`
    taxonomy, not postmeta; and there's no first/last name meta at all —
-   SportsPress just uses the post title for the player's full name.
+   SportsPress just uses the post title for the player's full name. Also
+   confirmed (by comparing this script's output against a real
+   admin-form-submitted box score row): a valid player entry in
+   `sp_players` must have *every* one of the event's configured stat
+   columns present (from `sp_columns`, not just the ones with a real
+   value — unset ones are `""`) and every value must be a **string**, even
+   numbers. A row missing columns or using real PHP int/float values was
+   silently ignored by SportsPress's box score editor — this script reads
+   `sp_columns` per-event and always emits the full set as strings to
+   match.
 
    Then check your Performance Variables (the G/A/PIM/SA/GA/SV definitions
    in SportsPress):
@@ -198,6 +207,19 @@ If a different league's gamesheet has a different layout, the parser
 functions in `includes/gamesheet-parser.php` are all header/id/class based
 rather than fixed positions, so most layout variations only need small
 tweaks there.
+
+## Careful with the WordPress admin box score editor after importing
+
+Confirmed the hard way: opening an event's edit screen in wp-admin and
+clicking **Update** — even just to add or tweak one player by hand —
+appeared to **replace that team's entire `sp_players` entry with only
+whatever the admin form currently held**, discarding every other
+player's stats that this script (or a previous admin session) had
+written, rather than merging with what was already there. If you need to
+hand-edit a box score after running this script, treat it as replacing
+the whole thing for that team, not adding to it — re-run this script
+afterwards (it's a merge, so it's safe) if you want the imported stats
+back.
 
 ## Security notes
 
