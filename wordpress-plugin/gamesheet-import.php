@@ -130,14 +130,19 @@ function gsi_normalize_name(string $s): string {
 }
 
 function gsi_event_teams(int $event_id): array {
-    $team_ids = get_post_meta($event_id, GSI_EVENT_TEAMS_META, true);
+    // SportsPress stores each team as its own postmeta row (multiple rows
+    // sharing the key GSI_EVENT_TEAMS_META), not one row holding a
+    // serialized array - so fetch with $single=false (the default) to get
+    // all of them. A site that instead stores one row containing an array
+    // is also handled below.
+    $raw = get_post_meta($event_id, GSI_EVENT_TEAMS_META);
+    $team_ids = (count($raw) === 1 && is_array($raw[0])) ? $raw[0] : $raw;
+
     $teams = [];
-    if (is_array($team_ids)) {
-        foreach ($team_ids as $key => $team_id) {
-            $team_id = (int) $team_id;
-            if ($team_id && get_post_type($team_id) === 'sp_team') {
-                $teams[$key] = ['team_id' => $team_id, 'title' => get_the_title($team_id)];
-            }
+    foreach ($team_ids as $key => $team_id) {
+        $team_id = (int) $team_id;
+        if ($team_id && get_post_type($team_id) === 'sp_team') {
+            $teams[$key] = ['team_id' => $team_id, 'title' => get_the_title($team_id)];
         }
     }
     return $teams;
