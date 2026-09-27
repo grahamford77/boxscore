@@ -200,9 +200,23 @@ function gsi_parse_uk_date(string $value): ?string {
 
 // --- Names -------------------------------------------------------------------
 
-/** "SURNAME Firstname[ Middle]" -> [last_name, first_name]. */
+/**
+ * A trailing "C" or "A" token marks the team captain / an alternate
+ * captain on the gamesheet (standard hockey convention) - not part of the
+ * name. Strips it if present, leaving other tokens untouched.
+ */
+function gsi_strip_captaincy_marker(array $tokens): array {
+    $last = end($tokens);
+    if ($last === 'C' || $last === 'A') {
+        array_pop($tokens);
+    }
+    return $tokens;
+}
+
+/** "SURNAME Firstname[ Middle][ C|A]" -> [last_name, first_name]. */
 function gsi_split_name(string $printed_name): array {
     $tokens = preg_split('/\s+/', trim($printed_name), -1, PREG_SPLIT_NO_EMPTY);
+    $tokens = gsi_strip_captaincy_marker($tokens);
     if (!$tokens) {
         return ['', ''];
     }
@@ -280,6 +294,7 @@ function gsi_parse_boxscore_table(DOMXPath $xpath, ?DOMElement $container): arra
             continue;
         }
         [$number, $name, $pos, $g, $a, $pim] = array_slice($cells, 0, 6);
+        $name = implode(' ', gsi_strip_captaincy_marker(preg_split('/\s+/', $name, -1, PREG_SPLIT_NO_EMPTY)));
         $stats[] = [
             'number' => $number,
             'name' => $name,

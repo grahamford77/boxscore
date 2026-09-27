@@ -47,6 +47,28 @@ foreach ($sheet['away']['roster'] as $r) {
 check('hyphenated last name', $hyphenated['last_name'] ?? null, 'Clarke-Pizzo');
 check('hyphenated first name', $hyphenated['first_name'] ?? null, 'Morgan');
 
+// "C" / "A" after a name mark the captain / an alternate captain on the
+// gamesheet, not a middle initial - must not end up in the player's name.
+$captain = null;
+foreach ($sheet['home']['roster'] as $r) {
+    if ($r['number'] === '14') { $captain = $r; break; }
+}
+check('captain last name excludes marker', $captain['last_name'] ?? null, 'Cooper');
+check('captain first name excludes marker', $captain['first_name'] ?? null, 'Jack');
+
+$altCaptain = null;
+foreach ($sheet['home']['roster'] as $r) {
+    if ($r['number'] === '29') { $altCaptain = $r; break; }
+}
+check('alt captain last name excludes marker', $altCaptain['last_name'] ?? null, 'Sylvester');
+check('alt captain first name excludes marker', $altCaptain['first_name'] ?? null, 'Jake');
+
+$captainBoxscore = null;
+foreach ($sheet['home']['skaters'] as $s) {
+    if ($s['number'] === '14') { $captainBoxscore = $s; break; }
+}
+check('captain boxscore name excludes marker', $captainBoxscore['name'] ?? null, 'COOPER Jack');
+
 // --- skater box score ---
 $bacallao = null;
 foreach ($sheet['home']['skaters'] as $s) {
