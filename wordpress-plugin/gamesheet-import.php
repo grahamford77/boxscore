@@ -33,9 +33,13 @@
 // one with e.g. `openssl rand -hex 32` and do not reuse a real WP password.
 define('GSI_ACCESS_TOKEN', 'change-me-to-a-long-random-string');
 
-// Taxonomy linking a sp_player post to a sp_team post. Confirm with
-// action=discover-event (see README.md).
-define('GSI_TEAM_TAXONOMY', 'sp_team');
+// Postmeta key(s) on a sp_player post holding the sp_team post ID it plays
+// for (confirmed against a real player: SportsPress does NOT use a
+// taxonomy for this, despite the matching name - it's plain postmeta, and
+// a real player had both of these set to the same team ID). Every key
+// listed here gets set to the team ID when a player is created, and
+// checked (OR'd together) when looking up a team's existing roster.
+define('GSI_PLAYER_TEAM_META_KEYS', ['sp_team', 'sp_current_team']);
 
 // Postmeta key on the sp_event post holding the two team IDs. Confirm with
 // action=discover-event.
@@ -45,14 +49,24 @@ define('GSI_EVENT_TEAMS_META', 'sp_team');
 // Confirm with action=discover-event.
 define('GSI_EVENT_PLAYERS_META', 'sp_players');
 
-// Postmeta keys used on sp_player posts for basic fields. Confirm with
-// action=discover-event (it dumps a sample player's full meta).
+// Postmeta keys used on sp_player posts for basic fields, confirmed
+// against a real player. There is no first/last name meta - SportsPress
+// just uses the post title for that.
 define('GSI_PLAYER_META_KEYS', [
-    'first_name'  => 'first_name',
-    'last_name'   => 'last_name',
-    'number'      => 'number',
-    'position'    => 'position',
-    'nationality' => 'nationality',
+    'number'      => 'sp_number',
+    'nationality' => 'sp_nationality',
+]);
+
+// Position is a taxonomy (sp_position), not postmeta. Maps this script's
+// gamesheet position codes (GK/D/F) to your site's sp_position term slugs.
+// Only 'forward' has been confirmed against a real player - CHECK the
+// 'sp_position_terms' list in action=discover-event's output and correct
+// 'GK'/'D' below if they don't match (a position that fails to resolve to
+// a real term is skipped with a warning, never guessed further).
+define('GSI_POSITION_TERM_SLUGS', [
+    'GK' => 'goaltender',
+    'D'  => 'defence',
+    'F'  => 'forward',
 ]);
 
 // Slugs of your SportsPress Performance Variable taxonomy terms for each
@@ -67,7 +81,9 @@ define('GSI_STAT_SLUGS', [
     'save_pct'      => 'sv',
 ]);
 
-define('GSI_DEFAULT_NATIONALITY', 'GB');
+// Confirmed against a real player: SportsPress stores nationality as a
+// lowercase ISO 3166-1 alpha-3 code (e.g. "gbr" for the UK), not "GB".
+define('GSI_DEFAULT_NATIONALITY', 'gbr');
 
 // 'decimal' writes e.g. 0.9 (SA/(SA+GA)); 'percent' writes e.g. 90.0. Match
 // whatever your SV performance variable's number format is set to.
@@ -120,19 +136,6 @@ if (GSI_ACCESS_TOKEN === 'change-me-to-a-long-random-string' || !hash_equals(GSI
 
 // --- WordPress/SportsPress integration ----------------------------------------
 
-function gsi_team_term_id(int $team_post_id): int {
-    $team = get_post($team_post_id);
-    if (!$team) {
-        return 0;
-    }
-    $term = get_term_by('slug', $team->post_name, GSI_TEAM_TAXONOMY);
-    if ($term) {
-        return $term->term_id;
-    }
-    $term = get_term_by('name', $team->post_title, GSI_TEAM_TAXONOMY);
-    return $term ? $term->term_id : 0;
-}
-
 function gsi_normalize_name(string $s): string {
     $s = remove_accents($s);
     $s = strtolower($s);
@@ -181,14 +184,14 @@ function gsi_pick_matching_wp_team(string $gamesheet_team_name, array $wp_teams)
 }
 
 function gsi_get_team_players(int $team_id): array {
-    $term_id = gsi_team_term_id($team_id);
-    if (!$term_id) {
-        return [];
+    $meta_query = ['relation' => 'OR'];
+    foreach (GSI_PLAYER_TEAM_META_KEYS as $key) {
+        $meta_query[] = ['key' => $key, 'value' => (string) $team_id];
     }
     $ids = get_posts([
         'post_type' => 'sp_player',
         'posts_per_page' => -1,
-        'tax_query' => [['taxonomy' => GSI_TEAM_TAXONOMY, 'field' => 'term_id', 'terms' => $term_id]],
+        'meta_query' => $meta_query,
         'fields' => 'ids',
     ]);
     $out = [];
@@ -200,6 +203,16 @@ function gsi_get_team_players(int $team_id): array {
         ];
     }
     return $out;
+}
+
+/** Resolves a gamesheet position code (GK/D/F) to a real sp_position term ID, or 0 if unmapped/not found. */
+function gsi_position_term_id(string $gamesheet_position): int {
+    $slug = GSI_POSITION_TERM_SLUGS[$gamesheet_position] ?? null;
+    if (!$slug) {
+        return 0;
+    }
+    $term = get_term_by('slug', $slug, 'sp_position');
+    return $term ? $term->term_id : 0;
 }
 
 function gsi_match_existing_player(string $number, string $last_name, string $first_name, array $wp_players): ?array {
@@ -226,21 +239,23 @@ function gsi_create_player(int $team_id, string $first_name, string $last_name, 
         throw new RuntimeException('Failed to create player ' . $title . ': ' . $player_id->get_error_message());
     }
     $keys = GSI_PLAYER_META_KEYS;
-    update_post_meta($player_id, $keys['first_name'], $first_name);
-    update_post_meta($player_id, $keys['last_name'], $last_name);
     if ($number !== '') {
         update_post_meta($player_id, $keys['number'], $number);
-    }
-    if ($position !== '') {
-        update_post_meta($player_id, $keys['position'], $position);
     }
     update_post_meta($player_id, $keys['nationality'], $nationality);
     update_post_meta($player_id, '_gsi_gamesheet_import', 1);
 
-    $term_id = gsi_team_term_id($team_id);
-    if ($term_id) {
-        wp_set_object_terms($player_id, [$term_id], GSI_TEAM_TAXONOMY, false);
+    foreach (GSI_PLAYER_TEAM_META_KEYS as $meta_key) {
+        update_post_meta($player_id, $meta_key, (string) $team_id);
     }
+
+    if ($position !== '') {
+        $position_term_id = gsi_position_term_id($position);
+        if ($position_term_id) {
+            wp_set_object_terms($player_id, [$position_term_id], 'sp_position', false);
+        }
+    }
+
     return ['player_id' => $player_id, 'title' => $title, 'created' => true];
 }
 
@@ -466,20 +481,17 @@ try {
             }
             $teams = gsi_event_teams($event_id);
             foreach ($teams as $key => &$team) {
-                $term_id = gsi_team_term_id($team['team_id']);
-                $sample = $term_id ? get_posts([
-                    'post_type' => 'sp_player', 'posts_per_page' => 1, 'fields' => 'ids',
-                    'tax_query' => [['taxonomy' => GSI_TEAM_TAXONOMY, 'field' => 'term_id', 'terms' => $term_id]],
-                ]) : [];
+                $roster = gsi_get_team_players($team['team_id']);
                 $team['post_meta'] = gsi_all_meta($team['team_id']);
-                $team['resolved_team_taxonomy_term_id'] = $term_id; // 0 means GSI_TEAM_TAXONOMY guess found no matching term - see sample_player_any below instead
-                $team['sample_player'] = $sample ? ['player_id' => $sample[0], 'title' => get_the_title($sample[0]), 'post_meta' => gsi_all_meta($sample[0]), 'taxonomies' => gsi_all_terms($sample[0], 'sp_player')] : null;
+                $team['player_count_found'] = count($roster);
+                $sample_id = $roster[0]['player_id'] ?? null;
+                $team['sample_player'] = $sample_id ? ['player_id' => $sample_id, 'title' => get_the_title($sample_id), 'post_meta' => gsi_all_meta($sample_id), 'taxonomies' => gsi_all_terms($sample_id, 'sp_player')] : null;
             }
             unset($team);
 
-            // Independent of whether the team-taxonomy guess above found anything,
-            // grab any one player on the site so we can see how it actually links
-            // to a team (taxonomy term, postmeta, or something else entirely).
+            // Independent of the team roster lookup above, grab any one player on
+            // the site so its full meta/taxonomies are visible even for an event
+            // whose teams have no players yet.
             $any_player_ids = get_posts(['post_type' => 'sp_player', 'posts_per_page' => 1, 'fields' => 'ids']);
             $sample_player_any = $any_player_ids ? [
                 'player_id' => $any_player_ids[0],
@@ -487,6 +499,12 @@ try {
                 'post_meta' => gsi_all_meta($any_player_ids[0]),
                 'taxonomies' => gsi_all_terms($any_player_ids[0], 'sp_player'),
             ] : null;
+
+            $position_terms = get_terms(['taxonomy' => 'sp_position', 'hide_empty' => false]);
+            $sp_position_terms = is_wp_error($position_terms) ? [] : array_map(
+                fn($t) => ['term_id' => $t->term_id, 'name' => $t->name, 'slug' => $t->slug],
+                $position_terms
+            );
 
             gsi_output([
                 'event_id' => $event_id,
@@ -497,6 +515,7 @@ try {
                 'teams' => $teams,
                 'sp_player_taxonomies_registered' => get_object_taxonomies('sp_player'),
                 'sample_player_any' => $sample_player_any,
+                'sp_position_terms' => $sp_position_terms, // check these match GSI_POSITION_TERM_SLUGS for GK/D/F
             ], 'json'); // always JSON - this is a raw setup-inspection dump
             break;
 

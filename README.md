@@ -64,55 +64,47 @@ where you put the pair on your server is up to you).
    ```
    should show `"sportspress_active": true`.
 
-4. **Confirm the field mappings against your real site.** The defaults
-   near the top of `gamesheet-import.php` are educated guesses at
-   SportsPress's data model, not guaranteed for your specific
-   version/setup. Using an existing real event ID that already has its two
-   teams assigned in SportsPress:
+4. **Confirm the field mappings against your real site.** Most of the
+   defaults near the top of `gamesheet-import.php` have been confirmed
+   against a real SportsPress site (see "What's confirmed" below), but
+   `GSI_POSITION_TERM_SLUGS` for GK/D still needs checking on yours, and
+   any of it could differ on an older/newer SportsPress version. Using an
+   existing real event ID that already has its two teams assigned in
+   SportsPress:
    ```
    https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php?token=YOUR_TOKEN&action=discover-event&event_id=1234
    ```
-   This dumps the event's raw postmeta/taxonomies, both teams, and one
-   sample player per team with *its* full meta/taxonomies (as JSON — it's a
-   setup tool, not the report page). Check:
+   This dumps the event's raw postmeta/taxonomies, both teams (with a
+   sample player from each, if they have any), any one player on the site
+   regardless of team, every `sp_position` taxonomy term, and every
+   taxonomy registered on the player post type (as JSON — it's a setup
+   tool, not the report page). Check:
    - `teams` is non-empty and lists the right two teams. If empty, your
      event→team meta key isn't `sp_team`, or isn't stored the way this
-     script expects — look through the dump's top-level `post_meta` for
-     wherever the two team post IDs actually are, and update
-     `GSI_EVENT_TEAMS_META` in the PHP file to match. (On a real
-     SportsPress site this is usually two separate postmeta rows sharing
-     the key `sp_team`, e.g. values `"732"` and `"75"` — that's handled
-     automatically.)
-   - Each team's `sample_player` is found by guessing that players link to
-     teams via a taxonomy called `sp_team` whose term slug/name matches the
-     team post. **This guess can be wrong** — if `sample_player` is `null`
-     even though the team has players, don't assume there are no players;
-     it means the guess didn't find a match. Two fields help you fix it
-     without needing a player on that specific team:
-     - `teams[n].resolved_team_taxonomy_term_id` — `0` means no taxonomy
-       term was found at all for that team under `GSI_TEAM_TAXONOMY`, which
-       usually means team↔player linking isn't done via a same-slug
-       taxonomy term (SportsPress may use a differently-configured
-       taxonomy, or postmeta instead — you'll need to check an actual
-       player's `taxonomies`/`post_meta` to see which).
-     - `sample_player_any` — any one player on the site, unfiltered by
-       team, with its **full** `post_meta` and **every** taxonomy it
-       belongs to (not just `GSI_TEAM_TAXONOMY`). This works even when the
-       team-matching guess above fails, and is the most reliable way to see
-       how team membership is actually recorded: look for a taxonomy whose
-       term name/slug matches one of your team names, or a postmeta key
-       whose value looks like a team post ID.
-     - `sp_player_taxonomies_registered` lists every taxonomy actually
-       registered on the player post type — if `sp_team` isn't in this
-       list at all, player↔team linking definitely isn't a taxonomy
-       relationship on your site, and `gsi_get_team_players()` /
-       `gsi_create_player()` in the PHP file (which both call
-       `gsi_team_term_id()`) will need to be changed to match however it's
-       really stored.
-   - Whichever `sample_player`/`sample_player_any` you get, its
-     `post_meta` shows how number/position/first name/last name/
-     nationality are actually stored. Update `GSI_PLAYER_META_KEYS` in the
-     PHP file if the keys differ from the defaults.
+     script expects (a real site stores it as two separate postmeta rows
+     sharing the key `sp_team`, e.g. values `"732"` and `"75"` — that's
+     handled automatically) — look through the dump's top-level
+     `post_meta` for wherever the two team IDs actually are, and update
+     `GSI_EVENT_TEAMS_META` in the PHP file to match.
+   - `sp_position_terms` lists your site's real position taxonomy terms
+     (id/name/slug). Match them up against `GSI_POSITION_TERM_SLUGS` in
+     the PHP file (only `forward` has been confirmed elsewhere — fix `GK`
+     and `D` if your slugs differ, e.g. `goalie` instead of `goaltender`).
+     A gamesheet position that doesn't resolve to a real term is skipped
+     (no taxonomy assigned) rather than guessed further.
+   - `sample_player_any.post_meta` (or a team's own `sample_player`, if it
+     has players already) shows number/nationality as actually stored.
+     Update `GSI_PLAYER_META_KEYS` in the PHP file if the keys differ from
+     the defaults (`sp_number`, `sp_nationality`).
+
+   **What's confirmed** (from a real SportsPress site, so these are the
+   defaults already): a player links to a team via plain postmeta —
+   `sp_team` and `sp_current_team`, both set to the team's post ID —
+   *not* a taxonomy, despite the name; number is postmeta `sp_number`;
+   nationality is postmeta `sp_nationality` as a lowercase ISO 3166-1
+   alpha-3 code (e.g. `gbr`, not `GB`); position is the `sp_position`
+   taxonomy, not postmeta; and there's no first/last name meta at all —
+   SportsPress just uses the post title for the player's full name.
 
    Then check your Performance Variables (the G/A/PIM/SA/GA/SV definitions
    in SportsPress):
@@ -171,11 +163,16 @@ instead of the HTML report (useful for scripting/automation).
 - **SV**: computed here as `SA / (SA + GA)`, not read from the page.
 - **SOG**: not available per-player on this gamesheet layout (see "Known
   gap" above) — never written.
-- **Player creation fields** (number, name, position, date of birth): read
-  from the full roster table inside `#teams`, which has both teams' Pos.,
-  No., Name ("SURNAME Firstname"), and Date of birth. Nationality isn't on
-  the gamesheet at all and is set to `GSI_DEFAULT_NATIONALITY` in the PHP
-  file (`GB` by default) — review/correct these manually afterwards.
+- **Player creation fields** (number, name, position): read from the full
+  roster table inside `#teams`, which has both teams' Pos., No., and Name
+  ("SURNAME Firstname") — the name becomes the new player's post title,
+  number becomes `sp_number`, and position is resolved to a real
+  `sp_position` taxonomy term via `GSI_POSITION_TERM_SLUGS`. Date of birth
+  is parsed by the script but not currently written anywhere (no confirmed
+  postmeta key for it yet). Nationality isn't on the gamesheet at all and
+  is set to `GSI_DEFAULT_NATIONALITY` in the PHP file (`gbr` by default,
+  matching SportsPress's ISO 3166-1 alpha-3 format) — review/correct these
+  manually afterwards.
 
 If a different league's gamesheet has a different layout, the parser
 functions in `includes/gamesheet-parser.php` are all header/id/class based
