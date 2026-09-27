@@ -163,19 +163,6 @@ functions in `includes/gamesheet-parser.php` are all header/id/class based
 rather than fixed positions, so most layout variations only need small
 tweaks there.
 
-## Careful with the WordPress admin box score editor after importing
-
-Confirmed the hard way: opening an event's edit screen in wp-admin and
-clicking **Update** — even just to add or tweak one player by hand —
-appeared to **replace that team's entire `sp_players` entry with only
-whatever the admin form currently held**, discarding every other
-player's stats that this script (or a previous admin session) had
-written, rather than merging with what was already there. If you need to
-hand-edit a box score after running this script, treat it as replacing
-the whole thing for that team, not adding to it — re-run this script
-afterwards (it's a merge, so it's safe) if you want the imported stats
-back.
-
 ## Security notes
 
 This script is a privileged, unauthenticated-by-default endpoint (it can
