@@ -440,7 +440,7 @@ try {
                 'ok' => true,
                 'sportspress_active' => post_type_exists('sp_event') && post_type_exists('sp_player') && post_type_exists('sp_team'),
                 'wordpress_version' => get_bloginfo('version'),
-            ], $format);
+            ], 'json'); // always JSON - the HTML report template only understands action=import's data shape
             break;
 
         case 'discover-event':
