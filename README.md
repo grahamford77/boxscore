@@ -64,11 +64,12 @@ where you put the pair on your server is up to you).
    ```
    should show `"sportspress_active": true`.
 
-4. **Confirm the field mappings against your real site.** Most of the
-   defaults near the top of `gamesheet-import.php` have been confirmed
-   against a real SportsPress site (see "What's confirmed" below), but
-   `GSI_POSITION_TERM_SLUGS` for GK/D still needs checking on yours, and
-   any of it could differ on an older/newer SportsPress version. Using an
+4. **Confirm the field mappings against your real site.** The defaults
+   near the top of `gamesheet-import.php` have been confirmed against a
+   real SportsPress site (see "What's confirmed" below), including
+   `GSI_POSITION_TERM_SLUGS`, but position term slugs are editable content
+   rather than something fixed by SportsPress itself, so a different site
+   could use different ones — worth a quick check on yours. Using an
    existing real event ID that already has its two teams assigned in
    SportsPress:
    ```
@@ -88,10 +89,9 @@ where you put the pair on your server is up to you).
      `GSI_EVENT_TEAMS_META` in the PHP file to match.
    - `sp_position_terms` lists your site's real position taxonomy terms
      (id/name/slug). Match them up against `GSI_POSITION_TERM_SLUGS` in
-     the PHP file (only `forward` has been confirmed elsewhere — fix `GK`
-     and `D` if your slugs differ, e.g. `goalie` instead of `goaltender`).
-     A gamesheet position that doesn't resolve to a real term is skipped
-     (no taxonomy assigned) rather than guessed further.
+     the PHP file and fix any that differ. A gamesheet position that
+     doesn't resolve to a real term is skipped (no taxonomy assigned)
+     rather than guessed further.
    - `sample_player_any.post_meta` (or a team's own `sample_player`, if it
      has players already) shows number/nationality as actually stored.
      Update `GSI_PLAYER_META_KEYS` in the PHP file if the keys differ from
@@ -115,6 +115,14 @@ where you put the pair on your server is up to you).
    %, and set their `slug` values in `GSI_STAT_SLUGS` in the PHP file. Also
    check your Save % variable's number format (decimal like `0.900` vs.
    percentage like `90.0`) and set `GSI_SV_FORMAT` to match.
+
+   This action looks for a taxonomy with "performance" in its name, which
+   doesn't exist on every SportsPress setup — an empty result here doesn't
+   mean anything is broken. If it comes back empty, look instead at an
+   `sp_columns` entry in a real event's `discover-event` dump (from step
+   above): it directly lists the enabled stat slugs in order, e.g.
+   `{"1":"g","2":"a","3":"h","4":"s","5":"pim","6":"sa","7":"ga","8":"sv"}`
+   — match those against `GSI_STAT_SLUGS`.
 
 ## Running an import
 

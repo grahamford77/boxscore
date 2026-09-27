@@ -59,13 +59,15 @@ define('GSI_PLAYER_META_KEYS', [
 
 // Position is a taxonomy (sp_position), not postmeta. Maps this script's
 // gamesheet position codes (GK/D/F) to your site's sp_position term slugs.
-// Only 'forward' has been confirmed against a real player - CHECK the
-// 'sp_position_terms' list in action=discover-event's output and correct
-// 'GK'/'D' below if they don't match (a position that fails to resolve to
-// a real term is skipped with a warning, never guessed further).
+// These three are confirmed against a real site, but term slugs are
+// editable content (not fixed by SportsPress itself) so a different site
+// could use different ones - check the 'sp_position_terms' list in
+// action=discover-event's output against these if positions aren't coming
+// through (a position that fails to resolve to a real term is just
+// skipped, never guessed further).
 define('GSI_POSITION_TERM_SLUGS', [
-    'GK' => 'goaltender',
-    'D'  => 'defence',
+    'GK' => 'goalie',
+    'D'  => 'defense',
     'F'  => 'forward',
 ]);
 
