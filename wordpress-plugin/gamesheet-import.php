@@ -555,7 +555,13 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
         $report['sides'][$side] = $side_report;
     }
 
-    $results_payload = gsi_build_team_results($sheet['team_periods'], (string) $team_id_by_side['home'], (string) $team_id_by_side['away']);
+    // Defensive fallback: if includes/gamesheet-parser.php on disk is an
+    // older version than this file (e.g. only one of the pair got
+    // re-uploaded), $sheet won't have this key at all rather than an
+    // empty-but-valid shape - degrade to "no score parsed" instead of a
+    // fatal TypeError.
+    $team_periods = $sheet['team_periods'] ?? ['periods' => [], 'total' => null];
+    $results_payload = gsi_build_team_results($team_periods, (string) $team_id_by_side['home'], (string) $team_id_by_side['away']);
 
     $applied = false;
     if ($apply) {
