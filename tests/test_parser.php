@@ -108,5 +108,11 @@ foreach ($sheet['warnings'] as $w) {
 }
 check('sog warning present', $has_sog_warning, true);
 
+// Team score, read from #summary's Game Summary table.
+check('period 1 score', $sheet['team_periods']['periods']['1'] ?? null, ['home' => 3, 'away' => 0]);
+check('period 2 score', $sheet['team_periods']['periods']['2'] ?? null, ['home' => 4, 'away' => 2]);
+check('period 3 score', $sheet['team_periods']['periods']['3'] ?? null, ['home' => 1, 'away' => 2]);
+check('total score', $sheet['team_periods']['total'] ?? null, ['home' => 8, 'away' => 4]);
+
 echo "\n$checks checks, $failures failures.\n";
 exit($failures > 0 ? 1 : 0);

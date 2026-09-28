@@ -62,6 +62,17 @@ define('GSI_EVENT_PLAYERS_META', 'sp_players');
 // holding an array.
 define('GSI_EVENT_LINEUP_META', 'sp_player');
 
+// Postmeta key on the sp_event post holding the team-level score, keyed by
+// team ID. Confirmed against real events: each team's entry is
+// {first, second, third, ot, ppg, ppo, goals, outcome}, all values
+// strings (goals = the period columns summed; ot/ppg/ppo were always
+// empty strings in both confirmed examples, i.e. not populated by this
+// site even though the keys exist - left untouched here rather than
+// guessed at). outcome is an array containing "win"/"loss" - this script
+// only sets it when the two teams' totals differ; a tie is left alone
+// rather than guessing what string SportsPress expects for one.
+define('GSI_EVENT_RESULTS_META', 'sp_results');
+
 // Postmeta keys used on sp_player posts for basic fields, confirmed
 // against a real player. There is no first/last name meta - SportsPress
 // just uses the post title for that.
@@ -298,6 +309,31 @@ function gsi_write_boxscore_meta(int $event_id, array $stats): array {
 }
 
 /**
+ * Merges the team-level score into GSI_EVENT_RESULTS_META, same merge
+ * approach as gsi_write_boxscore_meta: only the fields present in $results
+ * are overwritten per team, so anything already set that this script
+ * doesn't compute (ppg, ppo, or a field a different tool wrote) is left
+ * alone rather than clobbered.
+ */
+function gsi_write_team_results_meta(int $event_id, array $results): array {
+    $existing = get_post_meta($event_id, GSI_EVENT_RESULTS_META, true);
+    if (!is_array($existing)) {
+        $existing = [];
+    }
+    $merged = $existing;
+    foreach ($results as $team_id => $fields) {
+        if (!isset($merged[$team_id]) || !is_array($merged[$team_id])) {
+            $merged[$team_id] = [];
+        }
+        foreach ($fields as $key => $value) {
+            $merged[$team_id][$key] = $value;
+        }
+    }
+    update_post_meta($event_id, GSI_EVENT_RESULTS_META, $merged);
+    return $merged;
+}
+
+/**
  * Adds every player ID in $stats to the event's GSI_EVENT_LINEUP_META list
  * (deduped, existing entries - including any "0" placeholders - left
  * alone) so the box score display recognizes them, not just their stats.
@@ -435,6 +471,7 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
     $report = ['sides' => [], 'sheet' => $sheet];
     $stats_payload = [];
     $stat_columns = gsi_event_stat_columns($event_id);
+    $team_id_by_side = [];
 
     foreach (['home', 'away'] as $side) {
         $team_data = $sheet[$side];
@@ -444,6 +481,7 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
             throw new RuntimeException("Could not match gamesheet team '{$team_data['name']}' ($side) to one of the event's WordPress teams: $candidates");
         }
         $team_id = $wp_team['team_id'];
+        $team_id_by_side[$side] = $team_id;
         $roster_by_number = [];
         foreach ($team_data['roster'] as $r) {
             $roster_by_number[$r['number']] = $r;
@@ -517,14 +555,55 @@ function gsi_run_import(string $gamesheet_url, int $event_id, bool $apply): arra
         $report['sides'][$side] = $side_report;
     }
 
+    $results_payload = gsi_build_team_results($sheet['team_periods'], (string) $team_id_by_side['home'], (string) $team_id_by_side['away']);
+
     $applied = false;
     if ($apply) {
         $merged_sp_players = gsi_write_boxscore_meta($event_id, $stats_payload);
         gsi_rebuild_lineup_roster_meta($event_id, $ordered_team_ids, $merged_sp_players);
+        if ($results_payload) {
+            gsi_write_team_results_meta($event_id, $results_payload);
+        }
         $applied = true;
     }
 
-    return ['event_id' => $event_id, 'event_title' => get_the_title($event_id), 'report' => $report, 'stats' => $stats_payload, 'applied' => $applied];
+    return ['event_id' => $event_id, 'event_title' => get_the_title($event_id), 'report' => $report, 'stats' => $stats_payload, 'results' => $results_payload, 'applied' => $applied];
+}
+
+/**
+ * Builds the {first, second, third, ot, goals, outcome} fields per team
+ * from the gamesheet's parsed period-by-period score. Returns [] if the
+ * score couldn't be parsed at all. A period label this doesn't recognize
+ * ("1"/"2"/"3"/"OT") is skipped rather than guessed at; 'outcome' is only
+ * set when the two teams' totals actually differ (a tie is left alone -
+ * no confirmed value for what SportsPress expects there).
+ */
+function gsi_build_team_results(array $team_periods, string $home_team_id, string $away_team_id): array {
+    if (!$team_periods['total']) {
+        return [];
+    }
+    $home = ['first' => '', 'second' => '', 'third' => '', 'ot' => '', 'goals' => (string) $team_periods['total']['home']];
+    $away = ['first' => '', 'second' => '', 'third' => '', 'ot' => '', 'goals' => (string) $team_periods['total']['away']];
+
+    $ordinal = ['1' => 'first', '2' => 'second', '3' => 'third'];
+    foreach ($team_periods['periods'] as $label => $goals) {
+        $key = $ordinal[$label] ?? (strtoupper($label) === 'OT' ? 'ot' : null);
+        if ($key === null) {
+            continue;
+        }
+        $home[$key] = (string) $goals['home'];
+        $away[$key] = (string) $goals['away'];
+    }
+
+    if ($team_periods['total']['home'] > $team_periods['total']['away']) {
+        $home['outcome'] = ['win'];
+        $away['outcome'] = ['loss'];
+    } elseif ($team_periods['total']['away'] > $team_periods['total']['home']) {
+        $away['outcome'] = ['win'];
+        $home['outcome'] = ['loss'];
+    }
+
+    return [$home_team_id => $home, $away_team_id => $away];
 }
 
 // --- Output helpers -------------------------------------------------------
@@ -557,7 +636,9 @@ function gsi_output(array $data, string $format): void {
     }
 
     $sheet = $data['report']['sheet'];
-    echo '<h1>' . htmlspecialchars($sheet['home']['name']) . ' vs ' . htmlspecialchars($sheet['away']['name']) . '</h1>';
+    $total = $sheet['team_periods']['total'] ?? null;
+    $score_str = $total ? ($total['home'] . ' - ' . $total['away']) : '?';
+    echo '<h1>' . htmlspecialchars($sheet['home']['name']) . ' ' . htmlspecialchars($score_str) . ' ' . htmlspecialchars($sheet['away']['name']) . '</h1>';
     echo '<p><strong>Event #' . (int) $data['event_id'] . ': ' . htmlspecialchars($data['event_title']) . '</strong> - double check this is the event you meant before trusting the rest of this report.</p>';
     echo '<p>' . htmlspecialchars($sheet['date'] ?? '') . ' &middot; ' . htmlspecialchars($sheet['venue'] ?? '') . ' &middot; ' . htmlspecialchars($sheet['competition'] ?? '') . '</p>';
 
@@ -575,6 +656,13 @@ function gsi_output(array $data, string $format): void {
             echo '<tr><td>' . htmlspecialchars($p['number']) . '</td><td>' . htmlspecialchars($p['name']) . '</td><td>' . htmlspecialchars($p['action']) . '</td><td>' . htmlspecialchars((string) ($p['player_id'] ?? '')) . '</td></tr>';
         }
         echo '</table>';
+    }
+
+    echo '<h2>Score written' . ($data['applied'] ? '' : ' (preview)') . '</h2>';
+    if ($data['results']) {
+        echo '<pre>' . htmlspecialchars(json_encode($data['results'], JSON_PRETTY_PRINT)) . '</pre>';
+    } else {
+        echo '<div class="warn">Could not parse a score from the gamesheet - sp_results was not written.</div>';
     }
 
     echo '<h2>Stats payload written' . ($data['applied'] ? '' : ' (preview)') . '</h2>';

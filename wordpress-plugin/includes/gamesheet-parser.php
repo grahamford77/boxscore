@@ -72,6 +72,11 @@ function gsi_parse_gamesheet(string $html, ?string $source_url = null): array {
         $warnings[] = 'Could not parse goalie SA/GA from #summary.';
     }
 
+    $team_periods = gsi_parse_team_periods($xpath, gsi_by_id($xpath, 'summary'));
+    if (!$team_periods['total']) {
+        $warnings[] = 'Could not parse the team score from #summary\'s Game Summary table.';
+    }
+
     $warnings[] = 'This gamesheet layout has no per-skater Shots On Goal column - only team '
         . 'SoG totals per period are recorded, not attributed to individual skaters. SOG will '
         . 'not be written for any player; G, A, PIM (skaters) and SA, GA, SV (goalies) are still populated.';
@@ -84,6 +89,7 @@ function gsi_parse_gamesheet(string $html, ?string $source_url = null): array {
         'attendance' => $topinfo['Attendance'] ?? null,
         'home' => ['name' => $home_name, 'roster' => $home_roster, 'skaters' => $home_skaters, 'goalies' => $home_goalies],
         'away' => ['name' => $away_name, 'roster' => $away_roster, 'skaters' => $away_skaters, 'goalies' => $away_goalies],
+        'team_periods' => $team_periods,
         'warnings' => $warnings,
     ];
 }
@@ -305,6 +311,42 @@ function gsi_parse_boxscore_table(DOMXPath $xpath, ?DOMElement $container): arra
         ];
     }
     return $stats;
+}
+
+/**
+ * Parses #summary's Game Summary table (header "Period", "G A:B", ...) for
+ * per-period and total goals. Returns:
+ *   ['periods' => ['1' => ['home'=>int,'away'=>int], '2' => [...], ...],
+ *    'total'   => ['home'=>int,'away'=>int]]
+ * Period labels are whatever the table prints (normally "1","2","3", and
+ * "OT" if the game went to overtime) aside from the "TOTAL" row, which
+ * becomes the 'total' key instead of a period entry.
+ */
+function gsi_parse_team_periods(DOMXPath $xpath, ?DOMElement $summary_container): array {
+    $table = gsi_find_table_by_header($xpath, $summary_container, ['Period', 'G A:B', 'SoG A:B', 'PIM A:B', 'PPG A:B', 'SHG A:B']);
+    $result = ['periods' => [], 'total' => null];
+    if (!$table) {
+        return $result;
+    }
+    $rows = gsi_rows($table);
+    array_shift($rows); // header
+    foreach ($rows as $tr) {
+        $cells = gsi_row_cells($tr);
+        if (count($cells) < 2 || $cells[0] === '') {
+            continue;
+        }
+        [$label, $goals] = [$cells[0], $cells[1]];
+        if (!str_contains($goals, ':')) {
+            continue;
+        }
+        [$home, $away] = array_map('intval', explode(':', $goals, 2));
+        if (strtoupper($label) === 'TOTAL') {
+            $result['total'] = ['home' => $home, 'away' => $away];
+        } else {
+            $result['periods'][$label] = ['home' => $home, 'away' => $away];
+        }
+    }
+    return $result;
 }
 
 function gsi_parse_goalies(DOMXPath $xpath, ?DOMElement $summary_container): array {

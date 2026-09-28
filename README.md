@@ -4,9 +4,10 @@ A single PHP script you upload to your WordPress site and call with a URL
 (query parameters), rather than a tool you run from your own machine. It
 parses an ice hockey gamesheet (the "de-html" print view, e.g.
 `https://stats.nihlnational.com/pdf/print/de-html/<id>`) and imports it into
-a SportsPress event's box score: creates any players missing from the site
-(assigned to the correct team, nationality defaulted to GB), and writes
-**G, A, PIM** (skaters) and **SA, GA, SV** (goalies).
+a SportsPress event: creates any players missing from the site (assigned
+to the correct team, nationality defaulted to GB), writes their box score
+(**G, A, PIM** for skaters, **SA, GA, SV** for goalies), and writes the
+team score (per-period and total goals, win/loss).
 
 **Known gap:** this gamesheet layout only records Shots On Goal as a team
 total per period, not per skater, so there's no way to attribute it to
@@ -134,6 +135,11 @@ team-keyed data on every `apply=1`, so it stays correct — including
 self-healing if the list was ever left in a bad state — rather than just
 appending to whatever was there.
 
+It also writes the team score to a third key, `sp_results` (see "How
+stats are read" below) — merged per-team, so anything already set there
+that this script doesn't compute (e.g. power-play stats entered by hand)
+is left alone rather than overwritten.
+
 Add `&format=json` to either URL to get the same result as raw JSON
 instead of the HTML report (useful for scripting/automation).
 
@@ -147,6 +153,16 @@ instead of the HTML report (useful for scripting/automation).
 - **SV**: computed here as `SA / (SA + GA)`, not read from the page.
 - **SOG**: not available per-player on this gamesheet layout (see "Known
   gap" above) — never written.
+- **Team score**: read from `#summary`'s Game Summary table (per-period and
+  total goals for each team) and written to `sp_results`, keyed by team ID —
+  `first`/`second`/`third` (period goals), `ot` (if the table has an
+  overtime row), and `goals` (the total), all as strings to match a real
+  event's confirmed structure. `outcome` (`["win"]`/`["loss"]`) is only set
+  when the totals actually differ — a tie is left alone, since there's no
+  confirmed value for what SportsPress expects there. `ppg`/`ppo`
+  (power-play goals/opportunities) exist as keys in a real event's
+  `sp_results` too, but were always empty there, so this script doesn't
+  attempt to populate them.
 - **Player creation fields** (number, name, position): read from the full
   roster table inside `#teams`, which has both teams' Pos., No., and Name
   ("SURNAME Firstname", with a trailing "C"/"A" for captain/alternate
