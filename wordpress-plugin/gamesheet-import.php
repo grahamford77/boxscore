@@ -242,19 +242,32 @@ function gsi_position_term_id(string $gamesheet_position): int {
 }
 
 function gsi_match_existing_player(string $number, string $last_name, string $first_name, array $wp_players): ?array {
+    $target = gsi_normalize_name("$first_name $last_name");
+    $target_rev = gsi_normalize_name("$last_name $first_name");
+
+    // Prefer a player whose number AND name both match - the strongest signal.
     foreach ($wp_players as $p) {
-        if ($number !== '' && trim((string) $p['number']) === trim($number)) {
+        if ($number === '' || trim((string) $p['number']) !== trim($number)) {
+            continue;
+        }
+        $title = gsi_normalize_name($p['title']);
+        if ($title === $target || $title === $target_rev) {
             return $p;
         }
     }
-    $target = gsi_normalize_name("$first_name $last_name");
-    $target_rev = gsi_normalize_name("$last_name $first_name");
+
+    // Fall back to name only - catches an existing player who's since been
+    // given a different number (e.g. a new season).
     foreach ($wp_players as $p) {
         $title = gsi_normalize_name($p['title']);
         if ($title === $target || $title === $target_rev) {
             return $p;
         }
     }
+
+    // Deliberately never match on number alone: shirt numbers get
+    // reassigned to a different real player across seasons, so a number
+    // match with a different name is a new player, not the old one.
     return null;
 }
 
