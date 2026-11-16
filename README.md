@@ -105,9 +105,9 @@ https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php
 
 You'll get an HTML report: game info, any warnings, and for each team a
 table showing every gamesheet player matched to an existing WordPress
-player (by shirt number) or flagged to be created, plus a preview of the
-stats that would be written. Check that looks right, then add `&apply=1` to
-actually write it:
+player (by number and/or name — see below) or flagged to be created,
+plus a preview of the stats that would be written. Check that looks
+right, then add `&apply=1` to actually write it:
 
 ```
 https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php
@@ -118,10 +118,16 @@ https://yoursite.com/wp-content/gamesheet-import/gamesheet-import.php
   &apply=1
 ```
 
-It's safe to re-run: matching is by shirt number within each team, so a
-second run against the same event updates the same players' stats (merge
-mode — it won't touch star ratings or anything else already on the event)
-rather than creating duplicates. `apply=1` writes to two separate postmeta
+It's safe to re-run: matching an existing player requires their name to
+agree (number + name together if both match, otherwise name alone, e.g.
+if they've since been given a different number) — a shirt number alone
+is never trusted as a match, since numbers get reassigned to a different
+real player across seasons. So a second run against the same event
+updates the same players' stats (merge mode — it won't touch star
+ratings or anything else already on the event) rather than creating
+duplicates, and a gamesheet player wearing a number that now belongs to
+someone else correctly creates a new player instead of overwriting the
+old one's stats. `apply=1` writes to two separate postmeta
 keys: `sp_players` (the stat values, keyed by team then player) and
 `sp_player` — a player's stats alone aren't enough for them to appear
 anywhere (public page or wp-admin) without their ID also being in this
